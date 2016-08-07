@@ -69,8 +69,9 @@ def svd(in_mat):
     for c in range(2):
         U[:, c] /= singular_vals[c]
 
+    U = sympy.polys.polytools.cancel(U)
     # diff = in_mat - U*S*V.T
-    return sympy.polys.polytools.cancel(U), S, V
+    return U, S, V
 ########################################################################################################################
 def sing_vectors_plot(U, S, V):
 
@@ -147,7 +148,7 @@ def LU(A):
     if (abs(A[0][1]) > abs(A[0][0])):
         # swap rows of A
         A = [[A[1][0], A[1][1]], [A[0][0], A[0][1]]]
-        P = [[0][1], [1][0]]
+        P = [[0, 1], [1, 0]]
     else:
         P = [[1, 0], [0, 1]]
 
@@ -177,32 +178,96 @@ def comp_rel_err(x, x_hat):
     abs_err = x_vec - sympy.Matrix(x_hat)
     return abs_err/x_vec.norm()
 ########################################################################################################################
+def rotation_matrix(angle):
+
+    tmp_vec = sympy.Matrix([sympy.cos(angle), sympy.sin(angle)])
+    tmp_vec /= tmp_vec.norm()
+
+    row1 = [sympy.cos(angle), -sympy.sin(angle)]
+    row2 = [-row1[1], row1[0]]
+    return sympy.Matrix([row1, row2])
+
+########################################################################################################################
+def matrix_to_list(in_mat):
+    out_list = []
+    for r in range(in_mat.shape[0]):
+        out_list.append(list(in_mat.row(r)))
+    return out_list
+########################################################################################################################
 def main():
 
-    UU = sympy.zeros(2, 2)
-    VV = sympy.zeros(2, 2)
+    theta_u = sympy.S.Pi/6
+    theta_v = sympy.S.Pi/2
+
+    UU = rotation_matrix(theta_u)
+    VV = rotation_matrix(theta_v)
+
     SS = sympy.zeros(2, 2)
+    SS[0, 0] = sympy.S.One
+    SS[1, 1] = sympy.S.One/10**8
 
-    UU[0, 0] = sympy.S.Half*sympy.sqrt(3)
-    UU[1, 0] = sympy.S.Half
-    UU[0, 1] = -UU[1, 0]
-    UU[1, 1] = UU[0, 0]
+    A_init = UU*SS*VV.T
+    A = [[0.0, 0.0], [0.0, 0.0]]
+    for r in range(len(A)):
+        for c in range(len(A[1])):
+            A[r][c] = float(A_init[r, c])
 
-    SS[0, 0] = sympy.S.Half
-    SS[1, 1] = sympy.S.One/1000000000
+    P_float, L_float, U_float = LU(A)
 
-    VV[0, 0] = sympy.sqrt(2)/2
-    VV[1, 0] = sympy.sqrt(2)/2
-    VV[0, 1] = -VV[1, 0]
-    VV[1, 1] = VV[0, 0]
+    # Matrix of Sympy Rationals
+    A_rational = sympy_mat(A)
+    A_rational = [list(A_rational.row(k)) for k in range(2)]
 
-    A = UU*SS*VV.T
-    A_float = [[0.0, 0.0], [0.0, 0.0]]
-    for r in range(A.shape[0]):
-        for c in range(A.shape[1]):
-            A_float[r][c] = float(A[r, c])
+    P_rational, L_rational, U_rational = LU(A_rational)
 
-    PA, LA, UA = LU(A_float)
+    num_angles = 8
+    angles = [float(k)/float(num_angles)*2*math.pi for k in range(num_angles)]
+    bs = [[[math.cos(angle)], [math.sin(angle)]] for angle in angles]
+    xhats = []
+    yhats = []
+    bhats = []
+
+    xs = []
+    ys = []
+
+    err = [[None], [None]]
+    soln_abs_errs = []
+    soln_rel_errs = []
+    back_abs_errs = []
+    back_rel_errs = []
+
+    for b in bs:
+        xhat, yhat = LU_solve(P_float, L_float, U_float, b)
+        xhats.append(xhat)
+        yhats.append(yhat)
+
+        # Exact solution
+        b_rational = [[sympy.Rational(b[0][0])], [sympy.Rational(b[1][0])]]
+        x, y = LU_solve(P_rational, L_rational, U_rational, b_rational)
+        xs.append(x)
+        ys.append(y)
+
+        # Exact right hand side
+        wuuut
+        x_hat_rational = [[sympy.Rational(xhat[0][0])], [sympy.Rational(xhat[1][0])]]
+        bhat = sympy.Matrix(A_rational)*sympy.Matrix(x_hat_rational)
+        bhat = matrix_to_list(bhat)
+        bhats.append(bhat)
+
+        # forward error
+        for r in range(2):
+            err[r][0] = x[r][0] - sympy.Rational(xhat[r][0])
+
+        soln_abs_errs.append(err)
+        soln_rel_errs.append(sympy.Matrix(err).norm() / sympy.Matrix(x).norm())
+
+        # backwards error
+        for r in range(2):
+            err[r][0] = b_rational[r][0] - bhat[r][0]
+
+    return
+    U, S, V = svd(sympy.Matrix(A_rational))
+
     PA_sympy = []
     LA_sympy = []
     UA_sympy = []
@@ -216,26 +281,30 @@ def main():
     # x = LU_solve(PA, LA, UA, b)
     # r = sympy_mat(b) - sympy_mat(A_float)*sympy_mat(x)
 
-    rhss = unit_circle(16)
+    b_floats = unit_circle(16)
     # rhss.insert(0, [[float(U[0, 0])], [float(U[1, 0])]])
     rhss_sympy = []
-    float_solns = []
-    float_y_solns = []
-    for rhs in rhss:
+    x_hat_floats = []
+    y_hat_floats = []
+    b_hats = []
+    for b_float in b_floats:
 
         # Compute approximate solution in floating point
         # float_solns.append(det_solve(A_float, rhs))
-        x, y = LU_solve(PA, LA, UA, rhs)
-        float_solns.append(x)
-        float_y_solns.append(y)
+        x_hat_float, y_hat_float = LU_solve(PA, LA, UA, b_float)
+        x_hat_floats.append(x_hat_float)
+        y_hat_floats.append(y_hat_float)
 
-        rhss_sympy.append(copy.deepcopy(rhs))
+        rhss_sympy.append(copy.deepcopy(b_float))
         for r in range(2):
             rhss_sympy[-1][r][0] = sympy.Rational(rhss_sympy[-1][r][0])
 
-        x_sympy, y_sympy = LU_solve(PA_sympy, LA_sympy, UA_sympy, rhss_sympy[-1])
+        b_hats.append(A_sympy*sympy_mat(x_hat_float))
 
-        print sympy.N(comp_rel_err(x, x_sympy)), sympy.N(comp_rel_err(y, y_sympy))
+        b_tmp = sympy_mat(b_float)
+        b_comp_rel_err = (b_hats[-1] - b_tmp)/b_tmp.norm()
+        print sympy.N(b_comp_rel_err)
+
 
     A = sympy_mat(A_float)
     A_inv = A.inv()
@@ -263,34 +332,34 @@ def main():
     pert_rhss = []
     rhs_errs = []
     soln_errs = []
-    for k in xrange(len(rhss)):
+    for k in xrange(len(b_floats)):
 
-        rhss[k] = sympy_mat(rhss[k])
-        float_solns[k] = sympy_mat(float_solns[k])
+        b_floats[k] = sympy_mat(b_floats[k])
+        x_hat_floats[k] = sympy_mat(x_hat_floats[k])
 
-        solns.append(A_inv*rhss[k])
+        solns.append(A_inv*b_floats[k])
 
         # Compute rhs such that pert_soln is an exact solution to A*pert_soln = pert_rhs
-        pert_rhss.append(A*float_solns[k])
+        pert_rhss.append(A*x_hat_floats[k])
 
-        rhs_errs.append(rhss[k] - pert_rhss[k])
+        rhs_errs.append(b_floats[k] - pert_rhss[k])
 
-        soln_errs.append(solns[k] - float_solns[k])
+        soln_errs.append(solns[k] - x_hat_floats[k])
 
     err_rhs_U_coords = []
     err_soln_V_coords = []
     err_rhs_U_coords_sing_inv = []
     err_comp_rhs_U_coords = []
     err_comp_soln_V_coords = []
-    for k in xrange(len(rhss)):
-        err_rhs_U_coords.append(U.T*(rhss[k] - pert_rhss[k]))
+    for k in xrange(len(b_floats)):
+        err_rhs_U_coords.append(U.T*(b_floats[k] - pert_rhss[k]))
         err_rhs_U_coords_sing_inv.append(S_inv*err_rhs_U_coords[-1])
-        err_soln_V_coords.append(V.T*(solns[k] - float_solns[k]))
+        err_soln_V_coords.append(V.T*(solns[k] - x_hat_floats[k]))
 
         soln_V_coords = V.T*solns[k]
-        rhs_U_coords = U.T*rhss[k]
-        err_comp_rhs_U_coords.append(sympy.zeros(rhss[k].shape[0], 1))
-        err_comp_soln_V_coords.append(sympy.zeros(rhss[k].shape[0], 1))
+        rhs_U_coords = U.T*b_floats[k]
+        err_comp_rhs_U_coords.append(sympy.zeros(b_floats[k].shape[0], 1))
+        err_comp_soln_V_coords.append(sympy.zeros(b_floats[k].shape[0], 1))
         for r in range(solns[k].shape[0]):
             err_comp_rhs_U_coords[-1][r] = err_rhs_U_coords[-1][r]/rhs_U_coords[r]
             err_comp_soln_V_coords[-1][r] = err_soln_V_coords[-1][r]/soln_V_coords[r]
@@ -298,7 +367,7 @@ def main():
 
 
     acc = 32
-    for k in xrange(len(rhss)):
+    for k in xrange(len(b_floats)):
         print k, '*****************************'
         print 'soln'
         print sympy.N(solns[k])
@@ -308,7 +377,7 @@ def main():
         print sympy.N(err_rhs_U_coords[k])
 
     acc = 5
-    for k in xrange(len(rhss)):
+    for k in xrange(len(b_floats)):
         # print 'rhs 2 norm rel err'
         # print sympy.N(rhs_errs[k].norm()/rhss[k].norm(), acc)
         #
@@ -316,7 +385,7 @@ def main():
         # print sympy.N(soln_errs[k].norm()/solns[k].norm(), acc)
 
         print 'rhs scaled error U coords'
-        tmp_rhs_rel_err_coords = sympy.N(err_comp_rhs_U_coords[k]/rhss[k].norm(), acc)
+        tmp_rhs_rel_err_coords = sympy.N(err_comp_rhs_U_coords[k]/b_floats[k].norm(), acc)
         print tmp_rhs_rel_err_coords
 
         print 'soln scaled error V coords'
@@ -336,7 +405,7 @@ def main():
         for r in range(2):
             soln_rel_err_V_coords[r, 0] /= soln_V_coords[r, 0]
 
-        rhs_U_coords = U.T*rhss[k]
+        rhs_U_coords = U.T*b_floats[k]
         rhs_rel_err_U_coords = sympy.MutableDenseMatrix(err_rhs_U_coords[k])
         for r in range(2):
             rhs_rel_err_U_coords[r, 0] /= rhs_U_coords[r, 0]
