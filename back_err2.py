@@ -1,16 +1,14 @@
 import numpy.linalg
 import scipy.linalg
 import sympy
-
+import float_solve
+import exact_solve
 
 def main():
 
-    num_angles = 128
-    angle_factor = 2.0*numpy.pi/num_angles
 
-    rhs_angles = [k*angle_factor for k in range(num_angles)]
-    rhss = [numpy.array([[numpy.cos(angle)], [numpy.sin(angle)]]) for angle in rhs_angles]
-
+    ###################################################################################
+    # Create matrix of doubles
     U_angle = numpy.pi/3.0
     U_trig = [numpy.cos(U_angle), numpy.sin(U_angle)]
     V_angle = numpy.pi/4.0
@@ -18,70 +16,84 @@ def main():
 
     U = rotation_matrix(*U_trig)
     V = rotation_matrix(*V_trig)
-    singular_values = [1e2, 1e-6]
+    singular_values = [10, 1e-5]
     S = numpy.diagflat(singular_values)
 
     A = numpy.dot(U, S)
     A = numpy.dot(A, V.T)
 
-    LU, P = scipy.linalg.lu_factor(A)
+    ###################################################################################
+    # Compute L U factorization of A via wrapper of LAPACK DGETRF
+    # LU, P = scipy.linalg.lu_factor(A)
 
-    solns = [scipy.linalg.lu_solve((LU, P), rhs) for rhs in rhss]
+    ###################################################################################
+    # Solve A*x = b in double precision for equispaced right hand sides on the unit circle
+    num_angles = 1
+    angle_factor = 2.0*numpy.pi/num_angles
+
+    rhs_angles = [k*angle_factor for k in range(num_angles)]
+    dbl_rhss = [numpy.array([[numpy.cos(angle)], [numpy.sin(angle)]]) for angle in rhs_angles]
+
+    ###################################################################################
+    # Compute solutions to perturbed problem
+    dbl_perturbed_solns = float_solve.LUsolve(A, dbl_rhss)
+    ###################################################################################
+    # Copmute EXACT SVD of A
+    # rational_A = exact_A(A)
+    # U, D, V = exact_svd(rational_A)
+
+    ###################################################################################
+    # Copmute EXACT solutions to A*x=b
+    exact_solns = exact_solve.solve(A, dbl_rhss)
+
+    perturbd_rhss = exact_solve.perturbed_RHS(A, dbl_perturbed_solns)
+
+    abs_diffs = exact_solve.absolute_differences(exact_solns, dbl_perturbed_solns, dbl_rhss, perturbd_rhss)
+    rel_errs = exact_solve.relative_errors(abs_diffs, exact_solns, dbl_rhss)
+
+    cond2_lower_bounds = [rel_errs[k][0]/rel_errs[k][1] for k in range(len(rel_errs))]
+
+    print [sympy.N(cond2_lower_bound) for cond2_lower_bound in cond2_lower_bounds]
+    exact_solns = []
+    dbl_rhss_rational = []
+    soln_abs_errs = []
+    rhs_abs_errs = []
+
+    perturbed_rhss_rational = []
+    # IN:
+    # rational A: exact A, represented as sympy.Rationals
+    # dbl_perturbed_solns: solutions to problem with exact A and perturbed RHS, represented as doubles
+    # dbl_rhss: exact right hand sides, represented as doubles
 
 
-    rational_A = exact_A(A)
-    U, D, V = exact_svd(rational_A)
+    # OUT:
+    # Exact solution to unperturbed problem, and exact RHS to perturbed problem
+    # perturbed_rhss_rational: exact RHS to problem with perturbed solution
+    for dbl_soln, dbl_rhs in zip(dbl_perturbed_solns, dbl_rhss):
+
+        # Represent the solution to the problem with perturbed RHS with sympy.Rationals
+        dbl_perturbed_soln_rational = sympy.Matrix([sympy.Rational(v[0]) for v in dbl_soln])
+
+        # Compute the perturbed RHS, given the exact A and solution to the problem with perturbed RHS
+        perturbed_rhss_rational.append(rational_A*dbl_perturbed_soln_rational)
+
+        # Represent unperturbed RHS with sympy.Rationals
+        dbl_rhss_rational.append(sympy.Matrix([sympy.Rational(v[0]) for v in dbl_rhs]))
+
+        # Compute exact solution to unperturbed problem
+        exact_solns.append(svd_inv(U, D, V, dbl_rhss_rational[-1]))
+
+        exact_soln_rational = sympy.Matrix([sympy.Rational(v[0]) for v in dbl_soln])
+        soln_abs_errs.append(exact_solns[-1] - exact_soln_rational)
+
+        rhs_abs_errs.append(dbl_rhss_rational[-1] - perturbed_rhss_rational[-1])
+
+        print sympy.N(U.T * (dbl_rhss_rational[0] - perturbed_rhss_rational[0]) / dbl_rhss_rational[0].norm())
     pass
 
 def rotation_matrix(cosine, sine):
     return numpy.array([[cosine, -sine], [sine, cosine]])
 
-def exact_A(A):
-
-    m = len(A)
-    n = len(A[0])
-
-    out_A = sympy.zeros(m, n)
-
-    for r in range(m):
-        for c in range(n):
-            out_A[r, c] = sympy.Rational(A[r, c])
-
-    return out_A
-
-def exact_svd(A):
-
-
-    U, sing_vals_sqrd_U = singular_vecs(A*A.T)
-    V, sing_vals_sqrd_V = singular_vecs(A.T*A)
-
-    sing_vals = [sympy.sqrt(sing_vals_sqrd) for sing_vals_sqrd in sing_vals_sqrd_U]
-
-    D = sympy.zeros(2)
-    for k in range(2):
-        D[k, k] = sing_vals[k]
-
-    return U, D, V
-
-def singular_vecs(A_prod):
-
-    r1 = A_prod.eigenvects()
-
-    svals_sqrd = [r1[i][0] for i in range(2)]
-
-    perm = [0, 1] if svals_sqrd[0] >= svals_sqrd[1] else [1, 0]
-
-    svals_sqrd = [svals_sqrd[i] for i in perm]
-
-    svecs = [r1[i][2][0] for i in range(2)]
-    svecs = [evec/evec.norm() for evec in svecs]
-
-    svecs = [svecs[i] for i in perm]
-
-    U = sympy.Matrix([list(svecs[0]), list(svecs[1])])
-    U = U.T
-
-    return U, svals_sqrd
 
 if __name__ == '__main__':
     main()
