@@ -16,7 +16,7 @@ def main():
 
     U = rotation_matrix(*U_trig)
     V = rotation_matrix(*V_trig)
-    singular_values = [10, 1e-5]
+    singular_values = [10, 1e-8]
     S = numpy.diagflat(singular_values)
 
     A = numpy.dot(U, S)
@@ -28,7 +28,7 @@ def main():
 
     ###################################################################################
     # Solve A*x = b in double precision for equispaced right hand sides on the unit circle
-    num_angles = 1
+    num_angles = 8
     angle_factor = 2.0*numpy.pi/num_angles
 
     rhs_angles = [k*angle_factor for k in range(num_angles)]
@@ -54,6 +54,13 @@ def main():
     cond2_lower_bounds = [rel_errs[k][0]/rel_errs[k][1] for k in range(len(rel_errs))]
 
     print [sympy.N(cond2_lower_bound) for cond2_lower_bound in cond2_lower_bounds]
+
+    U, D, V = exact_solve.svd(exact_solve.exact_A(A))
+
+    ###################################################################################
+    # Compute RHS error coordinate vector
+    U_RHS_err_coord_vecs = [U.T*abs_diffs[k][1] for k in range(len(abs_diffs))]
+
     exact_solns = []
     dbl_rhss_rational = []
     soln_abs_errs = []

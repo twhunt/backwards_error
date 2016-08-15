@@ -53,7 +53,7 @@ def exact_A(A):
     return out_A
 
 
-def exact_svd(A, simplify=True):
+def svd(A, simplify=True):
 
 
     #TODO: verify that this is the exact SVD, and simplify
@@ -67,7 +67,11 @@ def exact_svd(A, simplify=True):
     for k in range(2):
         D[k, k] = sing_vals[k]
 
-    return U, D, V
+    if simplify:
+        return sympy.simplify(U), sympy.simplify(D), sympy.simplify(V)
+    else:
+        return U, D, V
+
 
 def singular_vecs(A_prod):
 
