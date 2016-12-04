@@ -16,12 +16,15 @@ def main():
 
     U = rotation_matrix(*U_trig)
     V = rotation_matrix(*V_trig)
-    singular_values = [10, 1e-8]
+    singular_values = [1, 2**-28]
     S = numpy.diagflat(singular_values)
 
     A = numpy.dot(U, S)
     A = numpy.dot(A, V.T)
 
+    ###################################################################################
+    # rational_A = exact_solve.exact_A(A)
+    # P, L, U = exact_solve.LU(rational_A)
     ###################################################################################
     # Compute L U factorization of A via wrapper of LAPACK DGETRF
     # LU, P = scipy.linalg.lu_factor(A)
@@ -48,10 +51,12 @@ def main():
 
     perturbd_rhss = exact_solve.perturbed_RHS(A, dbl_perturbed_solns)
 
-    abs_diffs = exact_solve.absolute_differences(exact_solns, dbl_perturbed_solns, dbl_rhss, perturbd_rhss)
-    rel_errs = exact_solve.relative_errors(abs_diffs, exact_solns, dbl_rhss)
+    soln_diffs, rhs_diffs = exact_solve.absolute_differences(exact_solns, dbl_perturbed_solns, dbl_rhss, perturbd_rhss)
+    assert(len(soln_diffs) == len(rhs_diffs))
+    soln_rel_errs, rhs_rel_errs = exact_solve.relative_errors(soln_diffs, rhs_diffs, exact_solns, dbl_rhss)
 
-    cond2_lower_bounds = [rel_errs[k][0]/rel_errs[k][1] for k in range(len(rel_errs))]
+    cond2_lower_bounds = [soln_rel_err/rhs_rel_err
+                          for soln_rel_err, rhs_rel_err in zip(soln_rel_errs, rhs_rel_errs)]
 
     print [sympy.N(cond2_lower_bound) for cond2_lower_bound in cond2_lower_bounds]
 

@@ -25,19 +25,30 @@ def absolute_differences(exact_solns, prtrbd_solns, exact_rhss, prtrbd_rhss):
     # prtrbd RHS's are Sympy matrices of Sympy.Rationals
 
     # out_diffs: difference between exact and perturbed solutions, difference between exact and perturbed RHS
-    out_diffs = []
-    for exact_soln, prtrbd_soln, exact_rhs, prtrbd_rhs in zip(exact_solns, prtrbd_solns, exact_rhss, prtrbd_rhss):
-        out_diffs.append((exact_soln - exact_A(prtrbd_soln), exact_A(exact_rhs) - prtrbd_rhs))
+    soln_diffs = []
+    rhs_diffs = []
 
-    return out_diffs
+    for exact_soln, prtrbd_soln in zip(exact_solns, prtrbd_solns):
+        soln_diffs.append(exact_soln - exact_A(prtrbd_soln))
 
-def relative_errors(abs_diffs, exact_solns, exact_rhss):
+    for exact_rhs, prtrbd_rhs in zip(exact_rhss, prtrbd_rhss):
+        rhs_diffs.append(exact_A(exact_rhs) - prtrbd_rhs)
 
-    rel_errs = []
-    for abs_diff, exact_soln, exact_rhs in zip(abs_diffs, exact_solns, exact_rhss):
-        rel_errs.append((abs_diff[0].norm()/exact_soln.norm(), abs_diff[1].norm()/exact_A(exact_rhs).norm()))
+    return soln_diffs, rhs_diffs
 
-    return rel_errs
+def relative_errors(soln_abs_diffs, rhs_abs_diffs, exact_solns, float_rhss):
+
+    soln_rel_errs = []
+    rhs_rel_errs = []
+
+    for soln_abs_diff, exact_soln in zip(soln_abs_diffs, exact_solns):
+        soln_rel_errs.append(soln_abs_diff.norm()/exact_soln.norm())
+
+    for rhs_abs_diff, float_rhs in zip(rhs_abs_diffs, float_rhss):
+        rhs_rel_errs.append(rhs_abs_diff.norm()/exact_A(float_rhs).norm())
+
+
+    return soln_rel_errs, rhs_rel_errs
 
 def exact_A(A):
 
@@ -102,3 +113,43 @@ def svd_inv(U, D, V, b):
     x = V*x
 
     return x
+
+def LU(A):
+
+    # Assumes A is a sympy.Matrix filled with sympy.Rationals
+
+
+    # # square matrices only
+    # assert A.rows == A.cols
+    #
+    # P = sympy.eye(A.rows)
+    # base_row = 0
+    # col = 0
+    # while base_row < A.rows:
+    #     while col < A.cols:
+    #         cand_pivot = sympy.Abs(A[base_row, col])
+    #         cand_pivot_row = base_row
+    #         pivot_row = base_row + 1
+    #
+    #         # Partial pivoting: look for largest entry in absolute value below the pivot
+    #         while pivot_row != A.rows:
+    #             abs_entry = sympy.Abs(A[pivot_row, col])
+    #             if abs_entry > cand_pivot:
+    #                 cand_pivot = abs_entry
+    #                 cand_pivot_row = pivot_row
+    #
+    #         if cand_pivot_row != base_row:
+    #             # Exchange rows
+    #             tmp_col = col
+    #             while tmp_col != A.cols:
+    #                 tmp = A[base_row, col]
+    #                 A[base_row, col] = A[cand_pivot_row, col]
+    #                 A[cand_pivot_row, col] = tmp
+
+    # el-cheapo 2x2 implementation
+
+    ell = A[1, 0]/A[0, 0]
+    A[1, 0] = ell
+    A[1, 1] = A[1.1] -ell*A[0, 1]
+
+    return A
