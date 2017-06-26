@@ -150,7 +150,7 @@ def main():
     A = numpy.dot(A, V.T)
 
     # Solve A*x = b in double precision for equispaced right hand sides on the unit circle
-    num_angles = 1024
+    num_angles = 16
     angle_factor = 2.0*numpy.pi/num_angles
 
     rhs_angles = [k*angle_factor for k in range(num_angles)]
@@ -212,23 +212,9 @@ def main():
     axes.zaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(log_tick_formatter))
     axes.set_label("Solution relative 2-norm error")
     fig.savefig("/tmp/soln_rel_err.png", format="png")
-    # print axes.get_zlim()
-    # zlabels = axes.get_zticklabels()
-    # zticks = axes.get_zticks()
-    # axes.set_zlim(.9*min(map(float, errors.soln_rel_errs)), 1.1*max(map(float, errors.soln_rel_errs)))
-    # axes.set_zlim(axes.get_zlim())
-    # ticks = [1e-10, 1e-9]
-    # axes.set_zticks(ticks)
-    # axes.set_zticklabels(map(str, ticks))
-    # matplotlib.pyplot.show()
-    # fig.savefig("/tmp/soln_rel_err2.png", format="png")
-    # zlabels = axes.get_zticklabels()
-    # zticks = axes.get_zticks()
-    # print "soln rel err plot 2 axes.get_zlim():", axes.get_zlim()
 
     print axes.get_zlim()
     print "soln rel err min max:", (min(map(float, errors.soln_rel_errs)), max(map(float, errors.soln_rel_errs)))
-
 
     # RHS relative error
     z = errors.rhs_rel_errs
@@ -240,16 +226,8 @@ def main():
     axes = fig.get_axes()[0]
     axes.zaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(log_tick_formatter))
 
-    # axes.set_zscale('log')
-    # axes.set_zlim(.9*min(map(float, errors.rhs_rel_errs)), 1.1*max(map(float, errors.rhs_rel_errs)))
-    # ticks = [1e-1, 1e2]
-    # axes.set_zticks(ticks)
-    # axes.set_zticklabels(map(str, ticks))
     axes.set_label("RHS relative 2-norm error")
-    # matplotlib.pyplot.show()
     fig.savefig("/tmp/rhs_rel_err.png", format="png")
-    zlabels = axes.get_zticklabels()
-    zticks = axes.get_zticks()
     print "rhs rel err min max:", (min(map(float, errors.rhs_rel_errs)), max(map(float, errors.rhs_rel_errs)))
 
     # 2-norm condition number lower bound
@@ -262,17 +240,8 @@ def main():
     axes = fig.get_axes()[0]
 
     axes.zaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(log_tick_formatter))
-    # axes.set_zlim(.9*min(map(float, errors.cond_lowers)), 1.1*max(map(float, errors.cond_lowers)))
-    # ticks = [1e-1, 1, 2]
-    # axes.set_zticks(ticks)
-    # axes.set_zticklabels(map(str, ticks))
     axes.set_label("2-norm condition number lower bound")
-    # matplotlib.pyplot.show()
     fig.savefig("/tmp/cond-lower.png", format="png")
-
-    zlabels = axes.get_zticklabels()
-    zticks = axes.get_zticks()
-    print(zlabels)
     print "cond lower bound:", (min(map(float, errors.cond_lowers)), max(map(float, errors.cond_lowers)))
 
 if __name__ == '__main__':
