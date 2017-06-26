@@ -1,428 +1,279 @@
+import scipy.linalg
+import numpy.linalg
+import numpy
 import sympy
-import sympy.polys.polytools
-import math
+import matplotlib
 import matplotlib.pyplot
-import copy
-########################################################################################################################
-def unit_circle(num_points):
+import matplotlib.ticker
+import mpl_toolkits.mplot3d.axes3d
 
-    dbl_pi = 2*math.pi
-    points = []
-    for n in xrange(num_points):
-        angle = float(n)/num_points*dbl_pi
-        points.append([[math.cos(angle)], [math.sin(angle)]])
-    return points
-########################################################################################################################
-def sympy_mat(in_mat):
+class Errors(object):
 
-    num_rows = len(in_mat)
-    num_cols = len(in_mat[0])
+    def __init__(self, soln_diffs, exact_solns, rhs_diffs, dbl_rhss):
 
-    out_mat = sympy.Matrix.zeros(num_rows, num_cols)
-    for row in xrange(num_rows):
-        for col in xrange(num_cols):
-            out_mat[row, col] = sympy.Rational(in_mat[row][col])
+        self.soln_diffs = soln_diffs
+        self.exact_solns = exact_solns
+        self.rhs_diffs = rhs_diffs
+        self.rhss = [sympy.Matrix(map(sympy.Rational, (rhs[0][0], rhs[1][0]))) for rhs in dbl_rhss]
 
-    return sympy.Matrix(out_mat)
-########################################################################################################################
-def det_solve(in_mat, rhs):
+        soln_rel_errs = [soln_diff.norm()/soln.norm() for soln_diff, soln in zip(self.soln_diffs, self.exact_solns)]
+        rhs_rel_errs = [rhs_diff.norm()/rhs.norm() for rhs_diff, rhs in zip(self.rhs_diffs, self.rhss)]
+        cond_lowers = [soln_rel_err/rhs_rel_err for soln_rel_err, rhs_rel_err in zip(soln_rel_errs, rhs_rel_errs)]
 
-    # in_mat must be 2x2 with nonzero determinant
+        self.soln_rel_errs = [sympy.N(soln_rel_err) for soln_rel_err in soln_rel_errs]
+        self.rhs_rel_errs = [sympy.N(rhs_rel_err) for rhs_rel_err in rhs_rel_errs]
+        self.cond_lowers = [sympy.N(cond_lower) for cond_lower in cond_lowers]
 
-    det_inv = 1.0/(in_mat[0][0]*in_mat[1][1] - in_mat[0][1]*in_mat[1][0])
-    soln = [[None], [None]]
-    soln[0][0] = det_inv*(in_mat[1][1]*rhs[0][0] - in_mat[0][1]*rhs[1][0])
-    soln[1][0] = det_inv*(in_mat[0][0]*rhs[1][0] - in_mat[1][0]*rhs[0][0])
-
-    return soln
-########################################################################################################################
-def svd(in_mat):
-
-    # Assume in_mat is 2x2, exact arithmetic for computations, and that the singular values of on_mat are distinct
-    V, rsvals = (in_mat.T*in_mat).diagonalize()
-    V_norms = [V.col(0).norm(), V.col(1).norm()]
-
-    for c in range(2):
-        V[:, c] /= V_norms[c]
-
-    V = sympy.MutableDenseMatrix(sympy.polys.polytools.cancel(V))
-
-    U = sympy.MutableDenseMatrix(in_mat*V)
-
-    singular_vals = [U.col(0).norm(), U.col(1).norm()]
-    singular_vals = map(sympy.polys.polytools.cancel, singular_vals)
-
-    if singular_vals[1] > singular_vals[0]:
-
-        singular_vals = [singular_vals[1], singular_vals[0]]
-
-        V0 = V.col(0)
-        V[:, 0] = V[:, 1]
-        V[:, 1] = V0
-
-        U0 = U.col(0)
-        U[:, 0] = U[:, 1]
-        U[:, 1] = U0
-
-    S = sympy.Matrix([[singular_vals[0], sympy.S.Zero], [sympy.S.Zero, singular_vals[1]]])
-
-    for c in range(2):
-        U[:, c] /= singular_vals[c]
-
-    U = sympy.polys.polytools.cancel(U)
-    # diff = in_mat - U*S*V.T
-    return U, S, V
-########################################################################################################################
-def sing_vectors_plot(U, S, V):
-
-    U1_x = [0.0, S[0, 0]*sympy.N(U[0, 0])]
-    U1_y = [0.0, S[0, 0]*sympy.N(U[1, 0])]
-
-    U2_x = [0.0, S[1, 1]*sympy.N(U[0, 1])]
-    U2_y = [0.0, S[1, 1]*sympy.N(U[1, 1])]
-
-    # U1_x = [0.0, sympy.N(U[0, 0])]
-    # U1_y = [0.0, sympy.N(U[1, 0])]
-    #
-    # U2_x = [0.0, sympy.N(U[0, 1])]
-    # U2_y = [0.0, sympy.N(U[1, 1])]
-
-    V1_x = [0.0, sympy.N(V[0, 0])]
-    V1_y = [0.0, sympy.N(V[1, 0])]
-
-    V2_x = [0.0, sympy.N(V[0, 1])]
-    V2_y = [0.0, sympy.N(V[1, 1])]
-
-    matplotlib.pyplot.plot(U1_x, U1_y, 'k-')
-    matplotlib.pyplot.plot(U2_x, U2_y, 'k-')
-
-    matplotlib.pyplot.plot(V1_x, V1_y, 'r-')
-    matplotlib.pyplot.plot(V2_x, V2_y, 'r-')
+def convert_numpy_array(numpy_array):
+    return [(arr[0][0], arr[1][0]) for arr in numpy_array]
 
 
-    matplotlib.pyplot.annotate('$U^1$', (U1_x[1], U1_y[1]))
-    matplotlib.pyplot.annotate('$U^2$', (U2_x[1], U2_y[1]))
+def log_tick_formatter(val, pos=None):
+    # Matplotlib's implementation for log scale axes in 3D plots doesn't appear to work:
+    # https://github.com/matplotlib/matplotlib/issues/209
+    return "{:.1e}".format(10**val)
 
-    matplotlib.pyplot.annotate('$V^1$', (V1_x[1], V1_y[1]))
-    matplotlib.pyplot.annotate('$V^2$', (V2_x[1], V2_y[1]))
+def plot_error(x, y, z):
 
-    matplotlib.pyplot.axes().set_aspect('equal')
-    pass
+    fig = matplotlib.pyplot.figure()
+    ax = mpl_toolkits.mplot3d.axes3d.Axes3D(fig)
 
-########################################################################################################################
-def unit_circle_plot(U, S, V, n):
+    ax.plot(x, y, z, "-o", markersize=3)
+    # ax.scatter(x, y, z)
 
-    step = 2.0*math.pi/n
-    x1 = [None]*(n+1)
-    x2 = [None]*(n+1)
+    ticks = [-1, -.5, .0, .5, 1]
+    str_ticks = map(str, ticks)
 
-    y1 = [None]*(n+1)
-    y2 = [None]*(n+1)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(str_ticks)
+    ax.set_xlabel("x")
 
-    for k in xrange(n):
-        angle = k*step
-        x1[k] = math.cos(angle)
-        x2[k] = math.sin(angle)
+    ax.set_yticks(ticks)
+    ax.set_yticklabels(str_ticks)
+    ax.set_ylabel("y")
 
-        tmp = U*(S*(V.T*sympy.Matrix([x1[k], x2[k]])))
-        y1[k] = tmp[0, 0]
-        y2[k] = tmp[1, 0]
+    return fig
 
-    x1[-1] = x1[0]
-    x2[-1] = x2[0]
+def PLUsolve(A):
+    """
+    Return solver suitable for A*x=b for map(), where the approximate solution is computed in
+    floating point arithmetic by scipy's wrapper for LAPACK DGETRF.
+    Returned solver maps right hand side b to soln xhat for fixed coefficient matrix A.
+    :param A:
+    :return:
+    """
 
-    y1[-1] = y1[0]
-    y2[-1] = y2[0]
+    # Compute L U factorization of A via wrapper of LAPACK DGETRF
+    LU, P = scipy.linalg.lu_factor(A)
 
-    matplotlib.pyplot.plot(x1, x2, 'r-')
-    matplotlib.pyplot.plot(y1, y2, 'k-')
+    def rhs_solver(b):
+        return scipy.linalg.lu_solve((LU, P), b)
 
-    pass
+    return rhs_solver
 
-########################################################################################################################
-def LU(A):
+def QRsolve(A):
 
-    # If A is not 2x2 and invertible, your face may explode.
-    # P*A = L*U
+    Q, R = numpy.linalg.qr(A)
 
-    if (abs(A[0][1]) > abs(A[0][0])):
-        # swap rows of A
-        A = [[A[1][0], A[1][1]], [A[0][0], A[0][1]]]
-        P = [[0, 1], [1, 0]]
-    else:
-        P = [[1, 0], [0, 1]]
+    def rhs_solver(b):
+        return scipy.linalg.solve_triangular(R, numpy.dot(Q.T, b))
 
-    L = [[1, 0], [A[1][0]/A[0][0], 1]]
-    U = [[A[0][0], A[0][1]], [0, A[1][1]-L[1][0]*A[0][1]]]
+    return rhs_solver
 
-    return P, L, U
-########################################################################################################################
-def LU_solve(P, L, U, b):
+def exact_A(A):
+    """
+    Return a sympy.Matrix instance built from a matrix of floating point numbers.
+    The entries in the returned matrix are sympy.Rationals that exactly match the entries of
+    the input matrix.
+    :param A:
+    :return:
+    """
 
-    if P[0][0] != 1:
-        # 0,0 entry of 2x2 permutation matrix indicates if effect of P is to swap rows
-        b = [b[1], b[0]]
+    return sympy.Matrix([map(sympy.Rational, row) for row in A])
 
-    y = [b[0], [b[1][0] - L[1][0]*b[0][0]]]
+def exact_solve(dbl_A):
+    """
+    Return solver for A*x=b suitable for map(), where the exact solution is computed.
+    :param dbl_A:
+    :return: Callable f such that f(b) returns the exact solution to dbl_A*x=b
+    """
 
-    x = [[None], [y[1][0]/U[1][1]]]
-    x[0][0] = (y[0][0] - U[0][1]*x[1][0])/U[0][0]
+    exact_A_inv = exact_A(dbl_A).inv()
 
-    return x, y
-########################################################################################################################
-def comp_rel_err(x, x_hat):
-    # x_vec = sympy.Matrix(x)
-    x = (r[0] for r in x)
-    x = map(sympy.Rational, x)
-    x_vec = sympy.Matrix(x)
-    abs_err = x_vec - sympy.Matrix(x_hat)
-    return abs_err/x_vec.norm()
-########################################################################################################################
-def rotation_matrix(angle):
+    def solve(dbl_rhs):
 
-    tmp_vec = sympy.Matrix([sympy.cos(angle), sympy.sin(angle)])
-    tmp_vec /= tmp_vec.norm()
+        return exact_A_inv*exact_A(dbl_rhs)
 
-    row1 = [sympy.cos(angle), -sympy.sin(angle)]
-    row2 = [-row1[1], row1[0]]
-    return sympy.Matrix([row1, row2])
+    return solve
 
-########################################################################################################################
-def matrix_to_list(in_mat):
-    out_list = []
-    for r in range(in_mat.shape[0]):
-        out_list.append(list(in_mat.row(r)))
-    return out_list
-########################################################################################################################
+
+def perturbed_RHS(dbl_A):
+    """
+    Returns function suitable for map() that returns the exact right hand side bhat,
+    given pertrubed solution xhat such that A*xhat=bhat.
+    :param dbl_A:
+    :return:
+    """
+
+    rational_A = exact_A(dbl_A)
+
+    def perturbed_b(perturbed_soln):
+        return rational_A*exact_A(perturbed_soln)
+
+    return perturbed_b
+
+def rotation_matrix(cosine, sine):
+    """
+    Helper function for constructing U and V factors in singular value decomposition A=U*Sigma*V.Transpose
+    :param cosine:
+    :param sine:
+    :return:
+    """
+    return numpy.array([[cosine, -sine], [sine, cosine]])
+
+
 def main():
 
-    theta_u = sympy.S.Pi/6
-    theta_v = sympy.S.Pi/2
+    # Construct A in floating point arithmetic from its prescribed singular value decomposition.
+    U_angle = numpy.pi/3.0
+    U_trig = [numpy.cos(U_angle), numpy.sin(U_angle)]
+    V_angle = numpy.pi/4.0
+    V_trig = [numpy.cos(V_angle), numpy.sin(V_angle)]
 
-    UU = rotation_matrix(theta_u)
-    VV = rotation_matrix(theta_v)
+    U = rotation_matrix(*U_trig)
+    V = rotation_matrix(*V_trig)
 
-    SS = sympy.zeros(2, 2)
-    SS[0, 0] = sympy.S.One
-    SS[1, 1] = sympy.S.One/10**8
+    singular_values = [1, 2**-24]
+    S = numpy.diagflat(singular_values)
 
-    A_init = UU*SS*VV.T
-    A = [[0.0, 0.0], [0.0, 0.0]]
-    for r in range(len(A)):
-        for c in range(len(A[1])):
-            A[r][c] = float(A_init[r, c])
+    A = numpy.dot(U, S)
+    A = numpy.dot(A, V.T)
 
-    P_float, L_float, U_float = LU(A)
+    # Solve A*x = b in double precision for equispaced right hand sides on the unit circle
+    num_angles = 1024
+    angle_factor = 2.0*numpy.pi/num_angles
 
-    # Matrix of Sympy Rationals
-    A_rational = sympy_mat(A)
-    A_rational = [list(A_rational.row(k)) for k in range(2)]
+    rhs_angles = [k*angle_factor for k in range(num_angles)]
+    dbl_rhss = [numpy.array([[numpy.cos(angle)], [numpy.sin(angle)]]) for angle in rhs_angles]
 
-    P_rational, L_rational, U_rational = LU(A_rational)
+    # Compute solutions to perturbed problem: xhat = solve(A, b), in floating point
+    # dbl_A_solver is a callable such that xhat = dbl_A_solver(dbl_rhs).
 
-    num_angles = 8
-    angles = [float(k)/float(num_angles)*2*math.pi for k in range(num_angles)]
-    bs = [[[math.cos(angle)], [math.sin(angle)]] for angle in angles]
-    xhats = []
-    yhats = []
-    bhats = []
+    # Solve by Gaussian elimination with partial pivoting, and two sequential triangular solves
+    # dbl_A_solver = PLUsolve(A)
+    dbl_A_solver = QRsolve(A)
 
-    xs = []
-    ys = []
+    # Solve by QR
+    dbl_perturbed_solns = map(dbl_A_solver, dbl_rhss)
 
-    err = [[None], [None]]
-    soln_abs_errs = []
-    soln_rel_errs = []
-    back_abs_errs = []
-    back_rel_errs = []
+    # Compute EXACT solutions to A*x=b: x = inv(A)*b, in exact arithmetic
+    # exact_A returns a callable such that x
+    exact_A_solver = exact_solve(A)
+    exact_solns = map(exact_A_solver, dbl_rhss)
 
-    for b in bs:
-        xhat, yhat = LU_solve(P_float, L_float, U_float, b)
-        xhats.append(xhat)
-        yhats.append(yhat)
+    # Compute perturbed right hand sides: bhat = A*xhat, in exact arithmetic
+    calculate_perturbed_rhs = perturbed_RHS(A)
+    perturbd_rhss = map(calculate_perturbed_rhs, dbl_perturbed_solns)
 
-        # Exact solution
-        b_rational = [[sympy.Rational(b[0][0])], [sympy.Rational(b[1][0])]]
-        x, y = LU_solve(P_rational, L_rational, U_rational, b_rational)
-        xs.append(x)
-        ys.append(y)
+    # Compute perturbed right hand sides: bhat = A*xhat, in exact arithmetic
+    rhs_diffs = [exact_A(exact)-perturbed for exact, perturbed in zip(dbl_rhss, perturbd_rhss)]
+    soln_diffs = [-(exact - exact_A(perturbed)) for exact, perturbed in zip(exact_solns, dbl_perturbed_solns)]
+    assert(len(soln_diffs) == len(rhs_diffs))
 
-        # Exact right hand side
-        wuuut
-        x_hat_rational = [[sympy.Rational(xhat[0][0])], [sympy.Rational(xhat[1][0])]]
-        bhat = sympy.Matrix(A_rational)*sympy.Matrix(x_hat_rational)
-        bhat = matrix_to_list(bhat)
-        bhats.append(bhat)
-
-        # forward error
-        for r in range(2):
-            err[r][0] = x[r][0] - sympy.Rational(xhat[r][0])
-
-        soln_abs_errs.append(err)
-        soln_rel_errs.append(sympy.Matrix(err).norm() / sympy.Matrix(x).norm())
-
-        # backwards error
-        for r in range(2):
-            err[r][0] = b_rational[r][0] - bhat[r][0]
-
-    return
-    U, S, V = svd(sympy.Matrix(A_rational))
-
-    PA_sympy = []
-    LA_sympy = []
-    UA_sympy = []
-    for r in range(2):
-        PA_sympy.append(map(sympy.Rational, PA[r]))
-        LA_sympy.append(map(sympy.Rational, LA[r]))
-        UA_sympy.append(map(sympy.Rational, UA[r]))
-
-    # D = sympy_mat(PA)*A - sympy_mat(LA)*sympy_mat(UA)
-    # b = [[.86], [.5]]
-    # x = LU_solve(PA, LA, UA, b)
-    # r = sympy_mat(b) - sympy_mat(A_float)*sympy_mat(x)
-
-    b_floats = unit_circle(16)
-    # rhss.insert(0, [[float(U[0, 0])], [float(U[1, 0])]])
-    rhss_sympy = []
-    x_hat_floats = []
-    y_hat_floats = []
-    b_hats = []
-    for b_float in b_floats:
-
-        # Compute approximate solution in floating point
-        # float_solns.append(det_solve(A_float, rhs))
-        x_hat_float, y_hat_float = LU_solve(PA, LA, UA, b_float)
-        x_hat_floats.append(x_hat_float)
-        y_hat_floats.append(y_hat_float)
-
-        rhss_sympy.append(copy.deepcopy(b_float))
-        for r in range(2):
-            rhss_sympy[-1][r][0] = sympy.Rational(rhss_sympy[-1][r][0])
-
-        b_hats.append(A_sympy*sympy_mat(x_hat_float))
-
-        b_tmp = sympy_mat(b_float)
-        b_comp_rel_err = (b_hats[-1] - b_tmp)/b_tmp.norm()
-        print sympy.N(b_comp_rel_err)
-
-
-    A = sympy_mat(A_float)
-    A_inv = A.inv()
-
-    U, S, V = svd(sympy.Matrix(A))
-    S_inv = S.inv()
-
-
-    # eps = 1.5e-9
-    # float_mat = [[1.1 + eps, 1.1], [-2.2, -2.2 - eps]]
-    # exact_mat = sympy.Matrix(sympy_mat(float_mat))
-    # exact_mat_inv = exact_mat.inv()
+    # rhs_rel_errs = [rhs_abs_diff/exact_solve.exact_A(exact_rhs).norm() for rhs_abs_diff, exact_rhs in zip(rhs_diffs, dbl_rhss)]
+    # soln_rel_errs = [soln_abs_diff/exact_soln.norm() for soln_abs_diff, exact_soln in zip(soln_diffs, exact_solns)]
     #
-    # # U, S, V = svd(exact_mat)
+    # cond2_lower_bounds = [soln_rel_err.norm()/rhs_rel_err.norm()
+    #                       for soln_rel_err, rhs_rel_err in zip(soln_rel_errs, rhs_rel_errs)]
+    #
+    # print [sympy.N(cond2_lower_bound) for cond2_lower_bound in cond2_lower_bounds]
 
-    # sing_vectors_plot(UU, SS, VV)
-    # unit_circle_plot(UU, SS, VV, 32)
+    # U, D, V = exact_solve.svd(exact_solve.exact_A(A))
+
+    errors = Errors(soln_diffs, exact_solns, rhs_diffs, dbl_rhss)
+    tmp_rhss = convert_numpy_array(dbl_rhss)
+
+    rhs_x = [rhs[0] for rhs in tmp_rhss]
+    rhs_x.append(rhs_x[0])
+    rhs_x = map(float, rhs_x)
+    rhs_y = [rhs[1] for rhs in tmp_rhss]
+    rhs_y.append(rhs_y[0])
+    rhs_y = map(float, rhs_y)
+
+    # Solution relative error
+    z = errors.soln_rel_errs
+    z.append(z[0])
+    z = map(float, z)
+    z = numpy.log10(z)
+
+    fig = plot_error(rhs_x, rhs_y, z)
+    axes = fig.get_axes()[0]
+    # https://github.com/matplotlib/matplotlib/issues/209
+    axes.zaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(log_tick_formatter))
+    axes.set_label("Solution relative 2-norm error")
+    fig.savefig("/tmp/soln_rel_err.png", format="png")
+    # print axes.get_zlim()
+    # zlabels = axes.get_zticklabels()
+    # zticks = axes.get_zticks()
+    # axes.set_zlim(.9*min(map(float, errors.soln_rel_errs)), 1.1*max(map(float, errors.soln_rel_errs)))
+    # axes.set_zlim(axes.get_zlim())
+    # ticks = [1e-10, 1e-9]
+    # axes.set_zticks(ticks)
+    # axes.set_zticklabels(map(str, ticks))
     # matplotlib.pyplot.show()
+    # fig.savefig("/tmp/soln_rel_err2.png", format="png")
+    # zlabels = axes.get_zticklabels()
+    # zticks = axes.get_zticks()
+    # print "soln rel err plot 2 axes.get_zlim():", axes.get_zlim()
 
-    # SS_inv = SS.inv()
-    # cond2 = SS[0, 0]/SS[1, 1]
-
-
-    solns = []
-    pert_rhss = []
-    rhs_errs = []
-    soln_errs = []
-    for k in xrange(len(b_floats)):
-
-        b_floats[k] = sympy_mat(b_floats[k])
-        x_hat_floats[k] = sympy_mat(x_hat_floats[k])
-
-        solns.append(A_inv*b_floats[k])
-
-        # Compute rhs such that pert_soln is an exact solution to A*pert_soln = pert_rhs
-        pert_rhss.append(A*x_hat_floats[k])
-
-        rhs_errs.append(b_floats[k] - pert_rhss[k])
-
-        soln_errs.append(solns[k] - x_hat_floats[k])
-
-    err_rhs_U_coords = []
-    err_soln_V_coords = []
-    err_rhs_U_coords_sing_inv = []
-    err_comp_rhs_U_coords = []
-    err_comp_soln_V_coords = []
-    for k in xrange(len(b_floats)):
-        err_rhs_U_coords.append(U.T*(b_floats[k] - pert_rhss[k]))
-        err_rhs_U_coords_sing_inv.append(S_inv*err_rhs_U_coords[-1])
-        err_soln_V_coords.append(V.T*(solns[k] - x_hat_floats[k]))
-
-        soln_V_coords = V.T*solns[k]
-        rhs_U_coords = U.T*b_floats[k]
-        err_comp_rhs_U_coords.append(sympy.zeros(b_floats[k].shape[0], 1))
-        err_comp_soln_V_coords.append(sympy.zeros(b_floats[k].shape[0], 1))
-        for r in range(solns[k].shape[0]):
-            err_comp_rhs_U_coords[-1][r] = err_rhs_U_coords[-1][r]/rhs_U_coords[r]
-            err_comp_soln_V_coords[-1][r] = err_soln_V_coords[-1][r]/soln_V_coords[r]
+    print axes.get_zlim()
+    print "soln rel err min max:", (min(map(float, errors.soln_rel_errs)), max(map(float, errors.soln_rel_errs)))
 
 
+    # RHS relative error
+    z = errors.rhs_rel_errs
+    z.append(z[0])
+    z = map(float, z)
+    z = numpy.log10(z)
 
-    acc = 32
-    for k in xrange(len(b_floats)):
-        print k, '*****************************'
-        print 'soln'
-        print sympy.N(solns[k])
-        print 'soln abs err V coords'
-        print sympy.N(err_soln_V_coords[k])
-        print 'rhs abs err U coords'
-        print sympy.N(err_rhs_U_coords[k])
+    fig = plot_error(rhs_x, rhs_y, z)
+    axes = fig.get_axes()[0]
+    axes.zaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(log_tick_formatter))
 
-    acc = 5
-    for k in xrange(len(b_floats)):
-        # print 'rhs 2 norm rel err'
-        # print sympy.N(rhs_errs[k].norm()/rhss[k].norm(), acc)
-        #
-        # print 'soln 2 norm rel err'
-        # print sympy.N(soln_errs[k].norm()/solns[k].norm(), acc)
+    # axes.set_zscale('log')
+    # axes.set_zlim(.9*min(map(float, errors.rhs_rel_errs)), 1.1*max(map(float, errors.rhs_rel_errs)))
+    # ticks = [1e-1, 1e2]
+    # axes.set_zticks(ticks)
+    # axes.set_zticklabels(map(str, ticks))
+    axes.set_label("RHS relative 2-norm error")
+    # matplotlib.pyplot.show()
+    fig.savefig("/tmp/rhs_rel_err.png", format="png")
+    zlabels = axes.get_zticklabels()
+    zticks = axes.get_zticks()
+    print "rhs rel err min max:", (min(map(float, errors.rhs_rel_errs)), max(map(float, errors.rhs_rel_errs)))
 
-        print 'rhs scaled error U coords'
-        tmp_rhs_rel_err_coords = sympy.N(err_comp_rhs_U_coords[k]/b_floats[k].norm(), acc)
-        print tmp_rhs_rel_err_coords
+    # 2-norm condition number lower bound
+    z = errors.cond_lowers
+    z.append(z[0])
+    z = map(float, z)
+    z = numpy.log10(z)
 
-        print 'soln scaled error V coords'
-        tmp_soln_rel_err_coords = sympy.N(err_soln_V_coords[k]/solns[k].norm(), acc)
-        print tmp_soln_rel_err_coords
+    fig = plot_error(rhs_x, rhs_y, z)
+    axes = fig.get_axes()[0]
 
-        # print 'rhs U residual'
-        # print sympy.N(err_rhs_U_coords[k], acc)
-        #
-        # print sympy.N(S_inv*err_rhs_U_coords[k]/solns[k].norm(), acc)
-        # print err_rhs_U_coords[k]
-        print '****************'
+    axes.zaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(log_tick_formatter))
+    # axes.set_zlim(.9*min(map(float, errors.cond_lowers)), 1.1*max(map(float, errors.cond_lowers)))
+    # ticks = [1e-1, 1, 2]
+    # axes.set_zticks(ticks)
+    # axes.set_zticklabels(map(str, ticks))
+    axes.set_label("2-norm condition number lower bound")
+    # matplotlib.pyplot.show()
+    fig.savefig("/tmp/cond-lower.png", format="png")
 
-        soln_abs_err_V_coords = V.T*soln_errs[k]
-        soln_V_coords = V.T*solns[k]
-        soln_rel_err_V_coords = soln_abs_err_V_coords
-        for r in range(2):
-            soln_rel_err_V_coords[r, 0] /= soln_V_coords[r, 0]
+    zlabels = axes.get_zticklabels()
+    zticks = axes.get_zticks()
+    print(zlabels)
+    print "cond lower bound:", (min(map(float, errors.cond_lowers)), max(map(float, errors.cond_lowers)))
 
-        rhs_U_coords = U.T*b_floats[k]
-        rhs_rel_err_U_coords = sympy.MutableDenseMatrix(err_rhs_U_coords[k])
-        for r in range(2):
-            rhs_rel_err_U_coords[r, 0] /= rhs_U_coords[r, 0]
-
-
-        print 'cond2 lower bound'
-        tmp_div = sympy.N(tmp_rhs_rel_err_coords.norm())
-        if tmp_div == 0.0:
-            print 'zero RHS error'
-        else:
-            print sympy.N(tmp_soln_rel_err_coords.norm())/tmp_div
-        # print 'soln V coords component residual'
-        # print sympy.N(soln_rel_err_V_coords, acc)
-        # print 'rhs U coords component residual'
-        # print sympy.N(rhs_rel_err_U_coords, acc)
-
-
-########################################################################################################################
 if __name__ == '__main__':
     main()
